@@ -1,4 +1,4 @@
-import type { TemplateConfig } from '../shared/types'
+import type { TemplateRecord } from '../shared/types'
 
 // Small, fast string hash (djb2 xor variant). Used only for change detection
 // in skip-unchanged — not for security. The server stores and compares the
@@ -11,8 +11,11 @@ function djb2(str: string): string {
   return (h >>> 0).toString(36)
 }
 
-// A (company, template) is "unchanged" when its template config and the exact
-// rendered display name both match the last successful generation.
-export function configHash(config: TemplateConfig, displayName: string): string {
-  return djb2(`${JSON.stringify(config)}|${displayName}`)
+// A (company, template) pair is "unchanged" only if nothing that affects the
+// rendered pixels changed: the template config, the background file it points
+// at, the global logo asset, and the exact display name. Replacing a
+// background or the logo changes the path (new timestamped filename), which
+// invalidates exactly the affected renders.
+export function renderHash(template: TemplateRecord, displayName: string, logoPath: string | null): string {
+  return djb2(`${JSON.stringify(template.config)}|${template.backgroundPath}|${logoPath ?? ''}|${displayName}`)
 }

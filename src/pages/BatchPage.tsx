@@ -3,7 +3,7 @@ import type { AppSettings, Company, TemplateRecord } from '../../shared/types'
 import { api } from '../api'
 import { loadImage } from '../render/engine'
 import { displayNameOf, renderJob } from '../render/job'
-import { configHash } from '../hash'
+import { renderHash } from '../hash'
 
 type Phase = 'idle' | 'awaitingApproval' | 'running' | 'done'
 type CompanyStatus = 'queued' | 'running' | 'done' | 'skipped' | 'failed'
@@ -44,7 +44,8 @@ async function writeOne(
   template: TemplateRecord,
   logo: HTMLImageElement | null,
   canvas: HTMLCanvasElement,
-  compress: boolean
+  compress: boolean,
+  logoPath: string | null
 ): Promise<{ dataUrl: string; overflow: boolean; path: string; compressionError: string | null }> {
   const displayName = displayNameOf(company)
   const job = await renderJob(template, displayName, logo, canvas)
@@ -56,7 +57,7 @@ async function writeOne(
   form.append('height', String(template.height))
   form.append('companyId', String(company.id))
   form.append('templateId', String(template.id))
-  form.append('configHash', configHash(template.config, displayName))
+  form.append('configHash', renderHash(template, displayName, logoPath))
   if (compress) form.append('compress', '1')
   const res = await api.writeRender(form)
   return { dataUrl: job.dataUrl, overflow: job.overflow, path: res.path, compressionError: res.compressionError }
@@ -173,7 +174,7 @@ export default function BatchPage() {
         for (const company of list) {
           const displayName = displayNameOf(company)
           for (const template of templates) {
-            if (skipUnchanged && !force && historyMap.get(`${company.id}:${template.id}`) === configHash(template.config, displayName)) continue
+            if (skipUnchanged && !force && historyMap.get(`${company.id}:${template.id}`) === renderHash(template, displayName, settings?.logoPath ?? null)) continue
             planned++
           }
         }
@@ -202,7 +203,7 @@ export default function BatchPage() {
         let cFlagged = 0
         for (const template of templates) {
           if (runToken.current !== token) return
-          const hash = configHash(template.config, displayName)
+          const hash = renderHash(template, displayName, settings?.logoPath ?? null)
           const key = `${company.id}:${template.id}`
           if (skipUnchanged && !force && historyMap.get(key) === hash) {
             cSkipped++
@@ -210,7 +211,7 @@ export default function BatchPage() {
             continue
           }
           try {
-            const { dataUrl, overflow, path, compressionError } = await writeOne(company, template, logo, canvas, compressing)
+            const { dataUrl, overflow, path, compressionError } = await writeOne(company, template, logo, canvas, compressing, settings?.logoPath ?? null)
             cWritten++
             setWritten((n) => n + 1)
             if (compressionError) {
@@ -264,7 +265,7 @@ export default function BatchPage() {
       const company = companies.find((c) => c.id === f.companyId)
       if (!company) continue
       try {
-        const { overflow, dataUrl } = await writeOne(company, f.template, logo, canvas, compressing)
+        const { overflow, dataUrl } = await writeOne(company, f.template, logo, canvas, compressing, settings?.logoPath ?? null)
         setWritten((n) => n + 1)
         if (overflow) {
           setFlagged((fl) => [...fl, { key: `${company.id}:${f.template.id}`, companyId: company.id, company: company.name, template: f.template, dataUrl }])
@@ -309,7 +310,7 @@ export default function BatchPage() {
       const updated = await api.setCompanyOverride(item.companyId, newDisplay)
       setCompanies((cs) => cs.map((c) => (c.id === updated.id ? updated : c)))
       const logo = await ensureLogo()
-      const { dataUrl, overflow } = await writeOne(updated, item.template, logo, canvasRef.current, compressing)
+      const { dataUrl, overflow } = await writeOne(updated, item.template, logo, canvasRef.current, compressing, settings?.logoPath ?? null)
       if (overflow) {
         setFlagged((f) => f.map((x) => (x.key === item.key ? { ...x, company: updated.name, dataUrl } : x)))
       } else {

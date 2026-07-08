@@ -42,6 +42,8 @@ export default function TemplatesPage({ onEdit }: { onEdit: (id: number) => void
   const [dupBusy, setDupBusy] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const logoInput = useRef<HTMLInputElement>(null)
+  const replaceInput = useRef<HTMLInputElement>(null)
+  const replaceTarget = useRef<TemplateRecord | null>(null)
 
   const refresh = () => {
     api.getTemplates().then(setTemplates).catch((e) => setNotice(String(e.message)))
@@ -141,6 +143,31 @@ export default function TemplatesPage({ onEdit }: { onEdit: (id: number) => void
     if (!to || to === from) return
     try {
       await api.renameCreative(from, to)
+      refresh()
+    } catch (e) {
+      setNotice((e as Error).message)
+    }
+  }
+
+  // Replaces one template's background file in place; layout/config is kept.
+  async function replaceBackground(t: TemplateRecord, file: File) {
+    if (!file.name.toLowerCase().endsWith('.png')) {
+      setNotice(`${file.name}: backgrounds must be PNG files`)
+      return
+    }
+    const form = new FormData()
+    form.append('file', file)
+    form.append('creative', t.creative)
+    form.append('width', String(t.width))
+    form.append('height', String(t.height))
+    form.append('replace', '1')
+    try {
+      const res = await api.uploadTemplate(form)
+      setNotice(
+        res.is2x
+          ? null
+          : `Background replaced, but ${file.name} is ${res.actual.width}x${res.actual.height} — expected ${t.width * 2}x${t.height * 2} (2x). It will be stretched.`
+      )
       refresh()
     } catch (e) {
       setNotice((e as Error).message)
@@ -376,6 +403,16 @@ export default function TemplatesPage({ onEdit }: { onEdit: (id: number) => void
                     Edit
                   </button>
                   <button
+                    className="secondary"
+                    title="Swap the background PNG; element layout is kept"
+                    onClick={() => {
+                      replaceTarget.current = t
+                      replaceInput.current?.click()
+                    }}
+                  >
+                    Replace bg
+                  </button>
+                  <button
                     className="danger"
                     onClick={() => {
                       if (window.confirm(`Delete template "${t.creative}" ${t.width}x${t.height}?`)) {
@@ -391,6 +428,18 @@ export default function TemplatesPage({ onEdit }: { onEdit: (id: number) => void
           </div>
         </div>
       ))}
+      <input
+        ref={replaceInput}
+        type="file"
+        accept=".png"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          const target = replaceTarget.current
+          if (f && target) replaceBackground(target, f)
+          e.target.value = ''
+        }}
+      />
     </div>
   )
 }
