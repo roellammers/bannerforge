@@ -62,27 +62,54 @@ function headlineTokenStyle(ctx: Ctx, cfg: HeadlineConfig, company: boolean): vo
   }
 }
 
+interface WordInput {
+  word: string
+  company: boolean
+  // Whether whitespace separated this word from the previous one. false means
+  // it directly abuts the previous token (e.g. the "." in "{company}." or the
+  // "'s" in "{company}'s") and must render with no space and never wrap away.
+  spaceBefore: boolean
+}
+
 // Splits a headline pattern into paragraphs (explicit \n) of word segments,
-// each flagged as company text or not.
-function segmentPattern(pattern: string, company: string): Array<Array<{ word: string; company: boolean }>> {
+// each flagged as company text or not, preserving whitespace adjacency so
+// punctuation touching {company} stays attached with no inserted space.
+function segmentPattern(pattern: string, company: string): WordInput[][] {
   return pattern.split('\n').map((paragraph) => {
-    const words: Array<{ word: string; company: boolean }> = []
+    const words: WordInput[] = []
     const parts = paragraph.split('{company}')
     parts.forEach((part, i) => {
-      for (const w of part.split(/\s+/).filter(Boolean)) words.push({ word: w, company: false })
+      const startsWithSpace = /^\s/.test(part)
+      const endsWithSpace = /\s$/.test(part)
+      part
+        .split(/\s+/)
+        .filter(Boolean)
+        .forEach((w, j) => {
+          // First word of the part inherits adjacency from the preceding
+          // {company} boundary (startsWithSpace); later words are space-split.
+          const spaceBefore = j > 0 || words.length === 0 ? true : startsWithSpace
+          words.push({ word: w, company: false, spaceBefore })
+        })
       if (i < parts.length - 1) {
-        for (const w of company.split(/\s+/).filter(Boolean)) words.push({ word: w, company: true })
+        company
+          .split(/\s+/)
+          .filter(Boolean)
+          .forEach((w, j) => {
+            const spaceBefore = j > 0 || words.length === 0 ? true : endsWithSpace
+            words.push({ word: w, company: true, spaceBefore })
+          })
       }
     })
     return words
   })
 }
 
-// Greedy word wrap. A single word wider than maxWidth is kept on its own
-// line and allowed to overflow (Phase 2 adds shrink + flagging).
+// Greedy word wrap. A single word wider than maxWidth is kept on its own line
+// and allowed to overflow (auto-shrink + flagging handle that). Words with
+// spaceBefore=false glue to the previous token: no leading space, no wrap.
 function wrapWords(
   ctx: Ctx,
-  words: Array<{ word: string; company: boolean }>,
+  words: WordInput[],
   maxWidth2x: number,
   setTokenStyle: (company: boolean) => void
 ): Line[] {
@@ -90,10 +117,16 @@ function wrapWords(
   let current: Token[] = []
   let currentWidth = 0
 
-  for (const { word, company } of words) {
+  for (const { word, company, spaceBefore } of words) {
     setTokenStyle(company)
     const wordWidth = ctx.measureText(word).width
     const spaceWidth = ctx.measureText(' ').width
+    if (current.length > 0 && !spaceBefore) {
+      // Glued token: attach to the current line with no space, no wrap break.
+      current.push({ text: word, company, width: wordWidth, spaceAfter: 0 })
+      currentWidth += wordWidth
+      continue
+    }
     const extra = current.length > 0 ? spaceWidth + wordWidth : wordWidth
     if (current.length > 0 && currentWidth + extra > maxWidth2x) {
       lines.push({ tokens: current, width: currentWidth })
@@ -212,7 +245,7 @@ function drawPlainBlock(ctx: Ctx, text: string, x: number, y: number, maxWidth: 
   const setStyle = () => applyStyle(ctx, style, style.fontWeight, style.color)
   const lines: Line[] = []
   for (const paragraph of text.split('\n')) {
-    const words = paragraph.split(/\s+/).filter(Boolean).map((word) => ({ word, company: false }))
+    const words = paragraph.split(/\s+/).filter(Boolean).map((word) => ({ word, company: false, spaceBefore: true }))
     if (words.length === 0) {
       lines.push({ tokens: [], width: 0 })
       continue
