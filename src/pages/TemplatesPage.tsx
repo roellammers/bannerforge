@@ -31,7 +31,15 @@ function is2x(p: PendingUpload): boolean {
   return p.imgWidth === p.width * 2 && p.imgHeight === p.height * 2
 }
 
-export default function TemplatesPage({ onEdit }: { onEdit: (id: number) => void }) {
+export default function TemplatesPage({
+  onEdit,
+  collapsed,
+  setCollapsed,
+}: {
+  onEdit: (id: number) => void
+  collapsed: Set<string>
+  setCollapsed: React.Dispatch<React.SetStateAction<Set<string>>>
+}) {
   const [templates, setTemplates] = useState<TemplateRecord[]>([])
   const [sizes, setSizes] = useState<BannerSize[]>([])
   const [settings, setSettings] = useState<AppSettings | null>(null)
@@ -42,7 +50,6 @@ export default function TemplatesPage({ onEdit }: { onEdit: (id: number) => void
   const [dupBusy, setDupBusy] = useState(false)
   const [edit, setEdit] = useState<{ creative: string; pattern: string; stat: string; sub: string } | null>(null)
   const [editBusy, setEditBusy] = useState(false)
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const fileInput = useRef<HTMLInputElement>(null)
   const logoInput = useRef<HTMLInputElement>(null)
   const replaceInput = useRef<HTMLInputElement>(null)

@@ -16,6 +16,9 @@ export type View =
 
 export default function App() {
   const [view, setView] = useState<View>({ name: 'templates' })
+  // Held here (not in TemplatesPage) so the collapsed/expanded set survives
+  // navigating into the editor and back for the session.
+  const [collapsedCreatives, setCollapsedCreatives] = useState<Set<string>>(new Set())
 
   const tab = (name: View['name'], label: string) => (
     <button
@@ -42,7 +45,11 @@ export default function App() {
       </header>
       <main>
         {view.name === 'templates' && (
-          <TemplatesPage onEdit={(templateId) => setView({ name: 'editor', templateId })} />
+          <TemplatesPage
+            onEdit={(templateId) => setView({ name: 'editor', templateId })}
+            collapsed={collapsedCreatives}
+            setCollapsed={setCollapsedCreatives}
+          />
         )}
         {view.name === 'editor' && (
           <EditorPage templateId={view.templateId} onBack={() => setView({ name: 'templates' })} />
