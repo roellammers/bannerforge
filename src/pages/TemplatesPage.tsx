@@ -42,6 +42,7 @@ export default function TemplatesPage({ onEdit }: { onEdit: (id: number) => void
   const [dupBusy, setDupBusy] = useState(false)
   const [edit, setEdit] = useState<{ creative: string; pattern: string; stat: string; sub: string } | null>(null)
   const [editBusy, setEditBusy] = useState(false)
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const fileInput = useRef<HTMLInputElement>(null)
   const logoInput = useRef<HTMLInputElement>(null)
   const replaceInput = useRef<HTMLInputElement>(null)
@@ -341,12 +342,44 @@ export default function TemplatesPage({ onEdit }: { onEdit: (id: number) => void
         />
       </div>
 
-      <h2>Saved templates ({templates.length})</h2>
+      <div className="row" style={{ alignItems: 'baseline' }}>
+        <h2>Saved templates ({templates.length})</h2>
+        {byCreative.size > 0 && (
+          <>
+            <button className="secondary" onClick={() => setCollapsed(new Set())}>
+              Expand all
+            </button>
+            <button className="secondary" onClick={() => setCollapsed(new Set(byCreative.keys()))}>
+              Collapse all
+            </button>
+          </>
+        )}
+      </div>
       {templates.length === 0 && <p className="muted">Nothing yet — drop background PNGs above to create templates.</p>}
-      {[...byCreative.entries()].map(([creative, list]) => (
+      {[...byCreative.entries()].map(([creative, list]) => {
+        const isCollapsed = collapsed.has(creative)
+        return (
         <div key={creative} style={{ marginBottom: 18 }}>
           <div className="row" style={{ margin: '12px 0 8px' }}>
-            <h2 style={{ margin: 0 }}>{creative}</h2>
+            <button
+              className="secondary"
+              aria-label={isCollapsed ? `Expand ${creative}` : `Collapse ${creative}`}
+              title={isCollapsed ? 'Expand' : 'Collapse'}
+              style={{ padding: '2px 8px', lineHeight: 1 }}
+              onClick={() =>
+                setCollapsed((prev) => {
+                  const next = new Set(prev)
+                  if (next.has(creative)) next.delete(creative)
+                  else next.add(creative)
+                  return next
+                })
+              }
+            >
+              {isCollapsed ? '▸' : '▾'}
+            </button>
+            <h2 style={{ margin: 0 }}>
+              {creative} <span className="muted" style={{ fontWeight: 400 }}>({list.length})</span>
+            </h2>
             <button
               className="secondary"
               onClick={() => {
@@ -444,6 +477,7 @@ export default function TemplatesPage({ onEdit }: { onEdit: (id: number) => void
               </div>
             </div>
           )}
+          {!isCollapsed && (
           <div className="template-grid">
             {list.map((t) => (
               <div className="card template-card" key={t.id}>
@@ -491,8 +525,10 @@ export default function TemplatesPage({ onEdit }: { onEdit: (id: number) => void
               </div>
             ))}
           </div>
+          )}
         </div>
-      ))}
+        )
+      })}
       <input
         ref={replaceInput}
         type="file"
