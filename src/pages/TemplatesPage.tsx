@@ -367,7 +367,7 @@ export default function TemplatesPage({
         const isCollapsed = collapsed.has(creative)
         return (
         <div key={creative} style={{ marginBottom: 18 }}>
-          <div className="row" style={{ margin: '12px 0 8px' }}>
+          <div className="row" style={{ margin: '12px 0 8px', gap: 8, alignItems: 'center' }}>
             <button
               className="secondary"
               aria-label={isCollapsed ? `Expand ${creative}` : `Collapse ${creative}`}
@@ -384,11 +384,13 @@ export default function TemplatesPage({
             >
               {isCollapsed ? '▸' : '▾'}
             </button>
-            <h2 style={{ margin: 0 }}>
+            {/* Fixed-width name cell so the action buttons align into columns down the page. */}
+            <h2 style={{ margin: 0, width: 280, flexShrink: 0 }}>
               {creative} <span className="muted" style={{ fontWeight: 400 }}>({list.length})</span>
             </h2>
             <button
               className="secondary"
+              style={{ width: 160 }}
               onClick={() => {
                 const src = list[0].config
                 setDup({
@@ -400,10 +402,11 @@ export default function TemplatesPage({
                 })
               }}
             >
-              Duplicate creative…
+              Duplicate creative
             </button>
             <button
               className="secondary"
+              style={{ width: 160 }}
               onClick={() => {
                 const src = list[0].config
                 setEdit({
@@ -414,9 +417,9 @@ export default function TemplatesPage({
                 })
               }}
             >
-              Update ad-copy…
+              Update ad-copy
             </button>
-            <button className="secondary" onClick={() => renameCreative(creative)}>
+            <button className="secondary" style={{ width: 100 }} onClick={() => renameCreative(creative)}>
               Rename
             </button>
           </div>
