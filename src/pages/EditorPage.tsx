@@ -136,6 +136,9 @@ export default function EditorPage({ templateId, onBack }: { templateId: number;
   const [selected, setSelected] = useState<ElementKey>('headline')
   const [metrics, setMetrics] = useState<RenderMetrics | null>(null)
   const [dirty, setDirty] = useState(false)
+  // Snapshot of the last-saved config, so Cancel can revert unsaved edits.
+  const [savedConfig, setSavedConfig] = useState<TemplateConfig | null>(null)
+  const [leaving, setLeaving] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [companies, setCompanies] = useState<Company[]>([])
@@ -150,6 +153,7 @@ export default function EditorPage({ templateId, onBack }: { templateId: number;
       .then((t) => {
         setTemplate(t)
         setConfig(t.config)
+        setSavedConfig(structuredClone(t.config))
         setDirty(false)
       })
       .catch((e) => setError(e.message))
@@ -267,18 +271,34 @@ export default function EditorPage({ templateId, onBack }: { templateId: number;
     }
   }
 
-  async function save() {
-    if (!config) return
+  async function save(): Promise<boolean> {
+    if (!config) return false
     setSaving(true)
     setError(null)
     try {
       await api.saveConfig(templateId, config)
+      setSavedConfig(structuredClone(config))
       setDirty(false)
+      return true
     } catch (e) {
       setError((e as Error).message)
+      return false
     } finally {
       setSaving(false)
     }
+  }
+
+  // Discard unsaved edits, reverting to the last-saved config.
+  function cancelEdits() {
+    if (savedConfig) setConfig(structuredClone(savedConfig))
+    setDirty(false)
+    setError(null)
+  }
+
+  // Back: leave immediately if clean, otherwise ask what to do.
+  function requestBack() {
+    if (dirty) setLeaving(true)
+    else onBack()
   }
 
   if (error && !template) return <p className="error">{error}</p>
@@ -336,9 +356,7 @@ export default function EditorPage({ templateId, onBack }: { templateId: number;
         <div className="row">
           <button
             className="secondary"
-            onClick={() => {
-              if (!dirty || window.confirm('Discard unsaved changes?')) onBack()
-            }}
+            onClick={requestBack}
           >
             ← Back
           </button>
@@ -367,11 +385,54 @@ export default function EditorPage({ templateId, onBack }: { templateId: number;
               ))}
             </select>
           )}
+          <button className="secondary" disabled={!dirty || saving} onClick={cancelEdits}>
+            Cancel
+          </button>
           <button className="primary" disabled={!dirty || saving} onClick={save}>
             {saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
           </button>
         </div>
       </div>
+
+      {leaving && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(18,32,25,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}
+          onClick={() => setLeaving(false)}
+        >
+          <div className="card" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0 }}>Unsaved changes</h2>
+            <p className="muted">You have unsaved edits to this template.</p>
+            {error && <p className="error">{error}</p>}
+            <div className="row" style={{ marginTop: 12 }}>
+              <button
+                className="primary"
+                disabled={saving}
+                onClick={async () => {
+                  if (await save()) {
+                    setLeaving(false)
+                    onBack()
+                  }
+                }}
+              >
+                {saving ? 'Saving…' : 'Save and leave'}
+              </button>
+              <button
+                className="danger"
+                disabled={saving}
+                onClick={() => {
+                  setLeaving(false)
+                  onBack()
+                }}
+              >
+                Discard and leave
+              </button>
+              <button className="secondary" disabled={saving} onClick={() => setLeaving(false)}>
+                Keep editing
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && <p className="error">{error}</p>}
       {template.bgWidth !== template.width * 2 || template.bgHeight !== template.height * 2 ? (
