@@ -37,6 +37,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).then((r) => json<{ created: TemplateRecord[] }>(r)),
+  updateCreativeCopy: (body: { creative: string; headlinePattern: string; statText: string; subText: string }) =>
+    fetch('/api/creatives/ad-copy', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then((r) => json<{ updated: number }>(r)),
   renameCreative: (from: string, to: string) =>
     fetch('/api/creatives/rename', {
       method: 'PUT',

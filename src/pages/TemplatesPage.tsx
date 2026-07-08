@@ -40,6 +40,8 @@ export default function TemplatesPage({ onEdit }: { onEdit: (id: number) => void
   const [notice, setNotice] = useState<string | null>(null)
   const [dup, setDup] = useState<{ source: string; target: string; pattern: string; stat: string; sub: string } | null>(null)
   const [dupBusy, setDupBusy] = useState(false)
+  const [edit, setEdit] = useState<{ creative: string; pattern: string; stat: string; sub: string } | null>(null)
+  const [editBusy, setEditBusy] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const logoInput = useRef<HTMLInputElement>(null)
   const replaceInput = useRef<HTMLInputElement>(null)
@@ -135,6 +137,25 @@ export default function TemplatesPage({ onEdit }: { onEdit: (id: number) => void
       setNotice((e as Error).message)
     } finally {
       setDupBusy(false)
+    }
+  }
+
+  async function submitAdCopy() {
+    if (!edit) return
+    setEditBusy(true)
+    try {
+      await api.updateCreativeCopy({
+        creative: edit.creative,
+        headlinePattern: edit.pattern,
+        statText: edit.stat,
+        subText: edit.sub,
+      })
+      setEdit(null)
+      refresh()
+    } catch (e) {
+      setNotice((e as Error).message)
+    } finally {
+      setEditBusy(false)
     }
   }
 
@@ -341,10 +362,54 @@ export default function TemplatesPage({ onEdit }: { onEdit: (id: number) => void
             >
               Duplicate creative…
             </button>
+            <button
+              className="secondary"
+              onClick={() => {
+                const src = list[0].config
+                setEdit({
+                  creative,
+                  pattern: src.headline.pattern,
+                  stat: src.stat.statText,
+                  sub: src.stat.subText,
+                })
+              }}
+            >
+              Update ad-copy…
+            </button>
             <button className="secondary" onClick={() => renameCreative(creative)}>
               Rename
             </button>
           </div>
+          {edit?.creative === creative && (
+            <div className="card" style={{ marginBottom: 12, maxWidth: 560 }}>
+              <p className="muted" style={{ marginTop: 0 }}>
+                Updates the headline and stat block across all {list.length} format{list.length === 1 ? '' : 's'} of "{creative}".
+                Positions, styles, and sizes are kept per format. Leave a stat field empty to skip that line.
+              </p>
+              <div className="controls-grid">
+                <label className="field wide">
+                  Headline pattern
+                  <textarea rows={2} autoFocus value={edit.pattern} onChange={(e) => setEdit({ ...edit, pattern: e.target.value })} />
+                </label>
+                <label className="field">
+                  Stat (large line)
+                  <input value={edit.stat} onChange={(e) => setEdit({ ...edit, stat: e.target.value })} />
+                </label>
+                <label className="field">
+                  Sub-line
+                  <input value={edit.sub} onChange={(e) => setEdit({ ...edit, sub: e.target.value })} />
+                </label>
+              </div>
+              <div className="row" style={{ marginTop: 12 }}>
+                <button className="primary" disabled={editBusy} onClick={submitAdCopy}>
+                  {editBusy ? 'Updating…' : `Update ${list.length} format${list.length === 1 ? '' : 's'}`}
+                </button>
+                <button className="secondary" onClick={() => setEdit(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
           {dup?.source === creative && (
             <div className="card" style={{ marginBottom: 12, maxWidth: 560 }}>
               <p className="muted" style={{ marginTop: 0 }}>

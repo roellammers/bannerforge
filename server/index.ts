@@ -266,6 +266,33 @@ app.post('/api/creatives/duplicate', (req, res) => {
   res.json({ created })
 })
 
+// Updates the ad-copy (headline pattern, stat, sub-line) across every format
+// of a creative in one call. Only the text fields change — positions, styles,
+// sizes, and modes stay per-template.
+app.put('/api/creatives/ad-copy', (req, res) => {
+  const creative = String(req.body.creative ?? '').trim()
+  const { headlinePattern, statText, subText } = req.body as {
+    headlinePattern?: string
+    statText?: string
+    subText?: string
+  }
+  if (!creative) return res.status(400).json({ error: 'creative is required' })
+  const rows = db.prepare('SELECT * FROM templates WHERE creative = ?').all(creative) as TemplateRow[]
+  if (rows.length === 0) return res.status(404).json({ error: `No templates found for creative "${creative}"` })
+
+  const update = db.prepare(`UPDATE templates SET config = ?, updated_at = datetime('now') WHERE id = ?`)
+  db.transaction(() => {
+    for (const row of rows) {
+      const config = JSON.parse(row.config) as TemplateConfig
+      if (typeof headlinePattern === 'string') config.headline.pattern = headlinePattern
+      if (typeof statText === 'string') config.stat.statText = statText
+      if (typeof subText === 'string') config.stat.subText = subText
+      update.run(JSON.stringify(config), row.id)
+    }
+  })()
+  res.json({ updated: rows.length })
+})
+
 app.put('/api/creatives/rename', (req, res) => {
   const from = String(req.body.from ?? '').trim()
   const to = String(req.body.to ?? '').trim()
