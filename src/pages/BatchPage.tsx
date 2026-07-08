@@ -4,6 +4,7 @@ import { api } from '../api'
 import { loadImage } from '../render/engine'
 import { displayNameOf, renderJob } from '../render/job'
 import { renderHash } from '../hash'
+import { findSanitizeCollisions } from '../../shared/sanitize'
 
 type Phase = 'idle' | 'awaitingApproval' | 'running' | 'done'
 type CompanyStatus = 'queued' | 'running' | 'done' | 'skipped' | 'failed'
@@ -163,6 +164,19 @@ export default function BatchPage() {
   async function runBatch(list: Company[]) {
     const token = ++runToken.current
     setError(null)
+
+    // Folder names come from sanitized company names; warn when two distinct
+    // companies in this run would overwrite each other's files.
+    const collisions = findSanitizeCollisions(list.map((c) => c.name))
+    if (collisions.length > 0) {
+      const ok = window.confirm(
+        `Warning: these companies get the same output folder and will overwrite each other's files:\n\n${collisions
+          .map((g) => g.join('  ↔  '))
+          .join('\n')}\n\nFix by adjusting a name on the Companies page, or continue anyway.`
+      )
+      if (!ok) return
+    }
+
     try {
       const history = await api.getRunHistory()
       const historyMap = new Map(history.map((h) => [`${h.companyId}:${h.templateId}`, h.configHash]))

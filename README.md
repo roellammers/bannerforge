@@ -54,6 +54,17 @@ are shown and editable before saving.
   pre-batch estimate that warns before exceeding the monthly plan limit.
   Dry-run toggle on both Generate and Batch skips Tinify entirely.
 
+## Post-brief additions
+
+- Per-template "Replace bg" button (layout kept, 2x re-validated)
+- Skip-unchanged hash covers background + logo paths, so asset swaps
+  invalidate exactly the affected renders
+- Folder-collision warning (Companies page banner + pre-batch confirm) when
+  two names sanitize to the same output folder
+- Banner sizes manageable in Settings (add/remove rows, no code change)
+- Single-company mode renders to an approval grid first; files are written
+  only after approval, and run history is recorded like the batch runner
+
 ## Notes
 
 - **Creatives**: a "creative" is a headline/stat combo sharing a background.

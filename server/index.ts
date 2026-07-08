@@ -86,6 +86,24 @@ app.get('/api/sizes', (_req, res) => {
   res.json(db.prepare('SELECT id, width, height FROM sizes ORDER BY width, height').all())
 })
 
+app.post('/api/sizes', (req, res) => {
+  const width = Number(req.body.width)
+  const height = Number(req.body.height)
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    return res.status(400).json({ error: 'width and height must be positive integers' })
+  }
+  db.prepare('INSERT OR IGNORE INTO sizes (width, height) VALUES (?, ?)').run(width, height)
+  res.json(db.prepare('SELECT id, width, height FROM sizes ORDER BY width, height').all())
+})
+
+// Removing a size only trims the upload dropdown; existing templates that use
+// the size are untouched.
+app.delete('/api/sizes/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM sizes WHERE id = ?').run(req.params.id)
+  if (info.changes === 0) return res.status(404).json({ error: 'Size not found' })
+  res.json(db.prepare('SELECT id, width, height FROM sizes ORDER BY width, height').all())
+})
+
 // ---- settings ----
 
 app.get('/api/settings', (_req, res) => {

@@ -45,6 +45,14 @@ export const api = {
     }).then((r) => json<{ renamed: number }>(r)),
 
   getSizes: () => fetch('/api/sizes').then((r) => json<BannerSize[]>(r)),
+  addSize: (width: number, height: number) =>
+    fetch('/api/sizes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ width, height }),
+    }).then((r) => json<BannerSize[]>(r)),
+  deleteSize: (id: number) =>
+    fetch(`/api/sizes/${id}`, { method: 'DELETE' }).then((r) => json<BannerSize[]>(r)),
 
   getSettings: () => fetch('/api/settings').then((r) => json<AppSettings>(r)),
   saveSettings: (patch: Partial<AppSettings>) =>

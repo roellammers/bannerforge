@@ -22,3 +22,16 @@ export function sanitizeName(name: string): string {
   s = s.replace(/[^A-Za-z0-9_-]/g, '')
   return s || 'Unnamed'
 }
+
+// Distinct names that sanitize to the same folder name would silently
+// overwrite each other's output. Returns one group per colliding folder.
+export function findSanitizeCollisions(names: string[]): string[][] {
+  const groups = new Map<string, Set<string>>()
+  for (const name of names) {
+    const key = sanitizeName(name)
+    const set = groups.get(key) ?? new Set<string>()
+    set.add(name)
+    groups.set(key, set)
+  }
+  return [...groups.values()].filter((s) => s.size > 1).map((s) => [...s])
+}

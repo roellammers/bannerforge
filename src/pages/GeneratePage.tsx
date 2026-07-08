@@ -1,15 +1,20 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AppSettings, Company, TemplateRecord } from '../../shared/types'
 import { api } from '../api'
-import { canvasToPngBlob, loadImage, renderTemplate } from '../render/engine'
-import { configFontWeights, ensureFonts } from '../render/fonts'
+import { loadImage } from '../render/engine'
+import { displayNameOf, renderJob } from '../render/job'
+import { renderHash } from '../hash'
 
-interface ItemStatus {
+type Phase = 'idle' | 'rendering' | 'review' | 'writing' | 'done'
+
+interface RenderedItem {
   template: TemplateRecord
-  status: 'pending' | 'rendering' | 'written' | 'error'
+  blob: Blob
+  dataUrl: string
+  overflow: boolean
+  status: 'rendered' | 'writing' | 'written' | 'error'
   path?: string
   error?: string
-  flagged?: boolean // headline overflowed at the shrink floor
 }
 
 export default function GeneratePage() {
@@ -17,8 +22,9 @@ export default function GeneratePage() {
   const [templates, setTemplates] = useState<TemplateRecord[]>([])
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [company, setCompany] = useState('')
-  const [items, setItems] = useState<ItemStatus[]>([])
-  const [running, setRunning] = useState(false)
+  const [companyRecord, setCompanyRecord] = useState<Company | null>(null)
+  const [items, setItems] = useState<RenderedItem[]>([])
+  const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState<string | null>(null)
   const [dryRun, setDryRun] = useState(false)
   const [tinify, setTinify] = useState<{ configured: boolean; compressionCount: number | null; monthlyLimit: number } | null>(null)
@@ -35,76 +41,95 @@ export default function GeneratePage() {
   }, [])
 
   const compressing = !dryRun && (tinify?.configured ?? false)
+  const busy = phase === 'rendering' || phase === 'writing'
 
-  async function generate() {
+  // Render everything up front — nothing touches disk until approval.
+  async function renderAll() {
     const name = company.trim()
-    if (!name || templates.length === 0 || running) return
+    if (!name || templates.length === 0 || busy) return
     const token = ++runToken.current
-    setRunning(true)
+    setPhase('rendering')
     setError(null)
-    setItems(templates.map((template) => ({ template, status: 'pending' })))
+    setItems([])
     try {
-      // Persist the company (and pick up any saved display-name override).
       const record = await api.addCompany(name)
+      setCompanyRecord(record)
       api.getCompanies().then(setCompanies).catch(() => {})
-      // Rendered text uses the override; file/folder names use the original.
-      const originalName = record.name
-      const displayName = record.displayOverride?.trim() || record.name
-
-      const logoImg = settings?.logoPath ? await loadImage(`/assets/${settings.logoPath}`).catch(() => null) : null
+      const displayName = displayNameOf(record)
+      const logo = settings?.logoPath ? await loadImage(`/assets/${settings.logoPath}`).catch(() => null) : null
       const canvas = document.createElement('canvas')
-
-      for (let i = 0; i < templates.length; i++) {
+      const rendered: RenderedItem[] = []
+      for (const template of templates) {
         if (runToken.current !== token) return
-        const template = templates[i]
-        setItems((prev) => prev.map((it, j) => (j === i ? { ...it, status: 'rendering' } : it)))
-        try {
-          await ensureFonts(configFontWeights(template.config))
-          const background = await loadImage(`/assets/${template.backgroundPath}`)
-          const metrics = renderTemplate({
-            config: template.config,
-            width: template.width,
-            height: template.height,
-            company: displayName,
-            background,
-            logo: logoImg,
-            target: canvas,
-          })
-          const blob = await canvasToPngBlob(canvas)
-          const form = new FormData()
-          form.append('file', blob, 'render.png')
-          form.append('company', originalName)
-          form.append('message', template.creative)
-          form.append('width', String(template.width))
-          form.append('height', String(template.height))
-          if (compressing) form.append('compress', '1')
-          const res = await api.writeRender(form)
-          if (res.compressionError) setError(`Compression failed (written uncompressed): ${res.compressionError}`)
-          setItems((prev) =>
-            prev.map((it, j) => (j === i ? { ...it, status: 'written', path: res.path, flagged: metrics.headlineOverflow } : it))
-          )
-        } catch (e) {
-          setItems((prev) => prev.map((it, j) => (j === i ? { ...it, status: 'error', error: (e as Error).message } : it)))
-        }
+        const job = await renderJob(template, displayName, logo, canvas)
+        rendered.push({ template, blob: job.blob, dataUrl: job.dataUrl, overflow: job.overflow, status: 'rendered' })
+        setItems([...rendered])
       }
+      setPhase('review')
     } catch (e) {
       setError((e as Error).message)
-    } finally {
-      if (runToken.current === token) setRunning(false)
+      setPhase('idle')
     }
+  }
+
+  async function approveAndWrite() {
+    if (!companyRecord || items.length === 0) return
+    const token = ++runToken.current
+    setPhase('writing')
+    const displayName = displayNameOf(companyRecord)
+    for (let i = 0; i < items.length; i++) {
+      if (runToken.current !== token) return
+      const it = items[i]
+      setItems((prev) => prev.map((x, j) => (j === i ? { ...x, status: 'writing' } : x)))
+      try {
+        const form = new FormData()
+        form.append('file', it.blob, 'render.png')
+        form.append('company', companyRecord.name)
+        form.append('message', it.template.creative)
+        form.append('width', String(it.template.width))
+        form.append('height', String(it.template.height))
+        form.append('companyId', String(companyRecord.id))
+        form.append('templateId', String(it.template.id))
+        form.append('configHash', renderHash(it.template, displayName, settings?.logoPath ?? null))
+        if (compressing) form.append('compress', '1')
+        const res = await api.writeRender(form)
+        if (res.compressionError) setError(`Compression failed (written uncompressed): ${res.compressionError}`)
+        setItems((prev) => prev.map((x, j) => (j === i ? { ...x, status: 'written', path: res.path } : x)))
+      } catch (e) {
+        setItems((prev) => prev.map((x, j) => (j === i ? { ...x, status: 'error', error: (e as Error).message } : x)))
+      }
+    }
+    setPhase('done')
+    api.tinifyStatus().then(setTinify).catch(() => {})
+  }
+
+  function cancel() {
+    runToken.current++
+    setItems([])
+    setCompanyRecord(null)
+    setPhase('idle')
   }
 
   const written = items.filter((i) => i.status === 'written').length
   const failed = items.filter((i) => i.status === 'error').length
-  const flagged = items.filter((i) => i.flagged).length
-  const done = !running && items.length > 0
+  const flagged = items.filter((i) => i.overflow).length
+
+  const byCreative = useMemo(() => {
+    const m = new Map<string, RenderedItem[]>()
+    for (const it of items) {
+      const list = m.get(it.template.creative) ?? []
+      list.push(it)
+      m.set(it.template.creative, list)
+    }
+    return [...m.entries()]
+  }, [items])
 
   return (
     <div>
       <h1>Generate — single company</h1>
       <div className="row" style={{ marginBottom: 10 }}>
         <label className="row" style={{ gap: 6, fontWeight: 400 }}>
-          <input type="checkbox" checked={dryRun} disabled={running || !tinify?.configured} onChange={(e) => setDryRun(e.target.checked)} />
+          <input type="checkbox" checked={dryRun} disabled={busy || !tinify?.configured} onChange={(e) => setDryRun(e.target.checked)} />
           Dry run — skip Tinify compression
         </label>
         {tinify?.configured ? (
@@ -113,7 +138,11 @@ export default function GeneratePage() {
           <span className="badge warn">Tinify not configured — dry run forced</span>
         )}
       </div>
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="error">
+          {error} <button className="secondary" onClick={() => setError(null)}>Dismiss</button>
+        </p>
+      )}
 
       <div className="card row">
         <label className="field" style={{ minWidth: 280 }}>
@@ -122,6 +151,7 @@ export default function GeneratePage() {
             list="company-list"
             value={company}
             placeholder="Type or pick a company…"
+            disabled={busy || phase === 'review'}
             onChange={(e) => setCompany(e.target.value)}
           />
         </label>
@@ -130,20 +160,62 @@ export default function GeneratePage() {
             <option key={c.id} value={c.name} />
           ))}
         </datalist>
-        <button className="primary" disabled={!company.trim() || templates.length === 0 || running} onClick={generate}>
-          {running ? `Generating… (${written + failed}/${items.length})` : `Generate ${templates.length} ads`}
-        </button>
+        {phase !== 'review' && (
+          <button className="primary" disabled={!company.trim() || templates.length === 0 || busy} onClick={renderAll}>
+            {phase === 'rendering' ? `Rendering… (${items.length}/${templates.length})` : `Render ${templates.length} ads for review`}
+          </button>
+        )}
+        {(phase === 'review' || phase === 'done') && (
+          <button className="secondary" onClick={cancel}>
+            {phase === 'done' ? 'New run' : 'Cancel'}
+          </button>
+        )}
         {templates.length === 0 && <span className="muted">No templates yet — upload backgrounds first.</span>}
       </div>
 
-      {items.length > 0 && (
+      {phase === 'review' && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <h2 style={{ margin: 0 }}>
+              Review — {companyRecord ? displayNameOf(companyRecord) : company} ({items.length} ads)
+              {flagged > 0 && <span className="badge warn" style={{ marginLeft: 8 }}>{flagged} overflow</span>}
+            </h2>
+            <button className="primary" onClick={approveAndWrite}>
+              Approve and write {items.length} files
+            </button>
+          </div>
+          <p className="muted">Nothing is on disk yet. Approve to write{compressing ? ' (compressed via Tinify)' : ' (dry run, uncompressed)'}.</p>
+          {byCreative.map(([creative, list]) => (
+            <div key={creative} style={{ marginBottom: 12 }}>
+              <strong>{creative}</strong>
+              <div className="row" style={{ alignItems: 'flex-start', marginTop: 6 }}>
+                {list.map((it) => (
+                  <div key={it.template.id} style={{ textAlign: 'center' }}>
+                    <img
+                      src={it.dataUrl}
+                      alt={`${creative} ${it.template.width}x${it.template.height}`}
+                      style={{ width: it.template.width, height: it.template.height, border: '1px solid var(--border)', borderRadius: 4 }}
+                    />
+                    <div className="muted" style={{ fontSize: 11 }}>
+                      {it.template.width}x{it.template.height} {it.overflow && <span className="error">overflow</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(phase === 'writing' || phase === 'done') && (
         <>
-          {done && (
+          {phase === 'done' && (
             <div className="card row" style={{ marginTop: 14 }}>
               <strong>
                 {written}/{items.length} files written{failed > 0 ? `, ${failed} failed` : ''}
               </strong>
               {flagged > 0 && <span className="badge warn">{flagged} flagged (headline overflow)</span>}
+              {compressing && <span className="muted">Credits used this month: {tinify?.compressionCount ?? '—'} / {tinify?.monthlyLimit}</span>}
               <code className="path">{settings?.outputDir}</code>
               <button className="secondary" onClick={() => api.openFolder().catch((e) => setError(e.message))}>
                 Open output folder
@@ -168,12 +240,10 @@ export default function GeneratePage() {
                   </td>
                   <td>
                     {it.status === 'written' && <span className="status-ok">Written</span>}
-                    {it.status === 'written' && it.flagged && (
-                      <span className="badge warn" style={{ marginLeft: 6 }}>overflow</span>
-                    )}
+                    {it.status === 'written' && it.overflow && <span className="badge warn" style={{ marginLeft: 6 }}>overflow</span>}
                     {it.status === 'error' && <span className="status-err">{it.error}</span>}
-                    {it.status === 'rendering' && 'Rendering…'}
-                    {it.status === 'pending' && <span className="muted">Queued</span>}
+                    {it.status === 'writing' && 'Writing…'}
+                    {it.status === 'rendered' && <span className="muted">Queued</span>}
                   </td>
                   <td>{it.path && <code className="path">{it.path}</code>}</td>
                 </tr>

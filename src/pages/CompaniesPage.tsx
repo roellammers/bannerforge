@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Company } from '../../shared/types'
 import { api } from '../api'
 import { parseCompanyFile, type ImportResult } from '../importCompanies'
-import { sanitizeName as sanitizePreview } from '../../shared/sanitize'
+import { findSanitizeCollisions, sanitizeName as sanitizePreview } from '../../shared/sanitize'
 
 export default function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[]>([])
@@ -85,6 +85,12 @@ export default function CompaniesPage() {
         </p>
       )}
       {notice && <p className="status-ok">{notice}</p>}
+      {findSanitizeCollisions(companies.map((c) => c.name)).map((group, i) => (
+        <p className="badge warn" key={i}>
+          Folder collision: {group.join(' and ')} share the output folder "{sanitizePreview(group[0])}" — their files will
+          overwrite each other. Adjust one of the names.
+        </p>
+      ))}
 
       <div className="card">
         <div className="row">
