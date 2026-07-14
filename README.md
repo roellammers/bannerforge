@@ -1,7 +1,7 @@
 # Bannerforge — Pingwire DCO App
 
-Local, solo-use web app that renders personalized display ads: a headline with
-the target company's name, a stat block, and the Pingwire logo composited onto
+Local, solo-use web app that renders personalized display ads for Digital Creative Optimization: a headline with
+the target company's name, a stat block, and a logo composited onto
 uploaded background creatives, written to disk as PNGs — one folder per company.
 
 ## Run
